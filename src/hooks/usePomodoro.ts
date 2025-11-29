@@ -1,0 +1,120 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import { toast } from "@/hooks/use-toast";
+
+type Mode = "work" | "break" | "longBreak";
+
+const TIMES = {
+  work: 25 * 60,
+  break: 5 * 60,
+  longBreak: 15 * 60,
+};
+
+const SESSIONS_UNTIL_LONG_BREAK = 4;
+
+export const usePomodoro = () => {
+  const [mode, setMode] = useState<Mode>("work");
+  const [timeLeft, setTimeLeft] = useState(TIMES.work);
+  const [isRunning, setIsRunning] = useState(false);
+  const [completedSessions, setCompletedSessions] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Initialize audio
+  useEffect(() => {
+    audioRef.current = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3");
+    audioRef.current.volume = 0.5;
+  }, []);
+
+  const playNotification = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch(() => {
+        // Audio play failed, likely due to browser autoplay policy
+      });
+    }
+  }, []);
+
+  const handleModeChange = useCallback((newMode: Mode) => {
+    setMode(newMode);
+    setTimeLeft(TIMES[newMode]);
+    setIsRunning(false);
+  }, []);
+
+  const handleStart = useCallback(() => {
+    setIsRunning(true);
+  }, []);
+
+  const handlePause = useCallback(() => {
+    setIsRunning(false);
+  }, []);
+
+  const handleReset = useCallback(() => {
+    setTimeLeft(TIMES[mode]);
+    setIsRunning(false);
+  }, [mode]);
+
+  const handleSkip = useCallback(() => {
+    if (mode === "work") {
+      const newSessions = completedSessions + 1;
+      setCompletedSessions(newSessions);
+      
+      if (newSessions % SESSIONS_UNTIL_LONG_BREAK === 0) {
+        handleModeChange("longBreak");
+        toast({
+          title: "🎉 Hora da pausa longa!",
+          description: "Você completou 4 sessões. Descanse bem!",
+        });
+      } else {
+        handleModeChange("break");
+        toast({
+          title: "☕ Hora da pausa!",
+          description: "Ótimo trabalho! Descanse um pouco.",
+        });
+      }
+    } else {
+      handleModeChange("work");
+      toast({
+        title: "💪 Vamos focar!",
+        description: "Nova sessão de estudo iniciando.",
+      });
+    }
+  }, [mode, completedSessions, handleModeChange]);
+
+  // Timer logic
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    if (isRunning && timeLeft > 0) {
+      interval = setInterval(() => {
+        setTimeLeft((prev) => prev - 1);
+      }, 1000);
+    } else if (timeLeft === 0) {
+      playNotification();
+      handleSkip();
+    }
+
+    return () => clearInterval(interval);
+  }, [isRunning, timeLeft, handleSkip, playNotification]);
+
+  // Update document title
+  useEffect(() => {
+    const minutes = Math.floor(timeLeft / 60);
+    const seconds = timeLeft % 60;
+    const timeString = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    const modeLabel = mode === "work" ? "Foco" : mode === "break" ? "Pausa" : "Pausa Longa";
+    document.title = `${timeString} - ${modeLabel} | Pomodoro`;
+  }, [timeLeft, mode]);
+
+  return {
+    mode,
+    timeLeft,
+    totalTime: TIMES[mode],
+    isRunning,
+    completedSessions,
+    sessionsUntilLongBreak: SESSIONS_UNTIL_LONG_BREAK,
+    handleModeChange,
+    handleStart,
+    handlePause,
+    handleReset,
+    handleSkip,
+  };
+};
